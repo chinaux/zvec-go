@@ -64,11 +64,11 @@ cd zvec-go
 
 # 2. 下载当前平台的预编译库
 #    （从 GitHub Releases 下载，解压到 lib/ 目录）
-go run ./cmd/download-libs -version v0.8.0
+go run ./cmd/download-libs -version v0.8.1
 
 # 在您的项目中使用 replace 指令
 # 在您项目的 go.mod 中：
-#   require github.com/zvec-ai/zvec-go v0.8.0
+#   require github.com/zvec-ai/zvec-go v0.8.1
 #   replace github.com/zvec-ai/zvec-go => /path/to/zvec-go
 
 # 3a. 使用 cgo 构建（启用 cgo 时的默认方式）
@@ -85,7 +85,7 @@ CGO_ENABLED=0 go build .
 go get github.com/zvec-ai/zvec-go
 
 # 2. 手动从 GitHub Releases 下载预编译库：
-#    https://github.com/zvec-ai/zvec-go/releases/download/v0.8.0/zvec-libs-darwin-arm64.tar.gz
+#    https://github.com/zvec-ai/zvec-go/releases/download/v0.8.1/zvec-libs-darwin-arm64.tar.gz
 #    解压到您项目的 lib/ 目录
 
 # 3. 使用 cgo 构建
@@ -225,10 +225,14 @@ func main() {
 | `NewHNSWIndexParams(metricType, M, efConstruction)` | 创建 HNSW 索引参数 |
 | `NewIVFIndexParams(metricType, nlist, nIters, useSoar)` | 创建 IVF 索引参数 |
 | `NewIVFRaBitQIndexParams(metricType, nlist, totalBits, sampleCount)` | 创建 IVF RaBitQ 索引参数（v0.7.0 起） |
+| `NewIVFPQIndexParams(metricType, nlist, nIters, useSoar, pq)` | 创建 IVF 乘积量化索引参数（v0.8.1 起） |
 | `NewFlatIndexParams(metricType)` | 创建 Flat 索引参数 |
 | `NewInvertIndexParams(enable, wildcard)` | 创建倒排索引参数 |
 | `NewFTSIndexParams(tokenizer, filters, extra)` | 创建全文搜索索引参数 |
 | `SetIndexParams(params)` | 设置字段索引参数 |
+| `SetQuantizerPQ(pq)` | 设置 IVF 乘积量化配置并选中 `QuantizeTypePQ`（v0.8.1 起） |
+| `GetQuantizerPQ()` | 读取 IVF 乘积量化配置（v0.8.1 起） |
+| `DefaultPqQuantizerParams()` / `NewPQ4QuantizerParams(n)` / `NewPQ8QuantizerParams(n)` | 构造乘积量化配置（v0.8.1 起） |
 
 ### 集合操作
 
@@ -303,10 +307,12 @@ func main() {
 | `SetIncludeVector(include)` | 是否包含向量数据 |
 | `SetIncludeDocID(include)` | 是否包含文档 ID |
 | `Query(query)` | 执行查询 |
-| `GroupBySearchQuery(query)` | 分组搜索查询 |
+| `NewGroupBySearchQuery()` | 创建分组搜索查询对象 |
+| `GroupByQuery(query)` | 按标量字段分组执行搜索（v0.8.1 起） |
 | `Fetch(pks, opts)` | 根据主键获取文档 |
 | `MultiQuery(query)` | 执行多路查询 |
 | `FreeDocs(docs)` | 释放查询结果内存 |
+| `FreeGroupResults(groups)` | 释放分组结果中的文档（v0.8.1 起） |
 
 ### 全文搜索 (FTS)
 
@@ -363,6 +369,7 @@ func main() {
 | `QuantizeTypeFP16` | FP16 量化 |
 | `QuantizeTypeInt8` | Int8 量化 |
 | `QuantizeTypeInt4` | Int4 量化 |
+| `QuantizeTypePQ` | IVF 乘积量化（v0.8.1 起） |
 
 ### 错误处理
 
@@ -407,7 +414,7 @@ go run main.go
 ./scripts/sync-zvec.sh
 
 # 更新到指定的标签版本
-./scripts/sync-zvec.sh v0.8.0
+./scripts/sync-zvec.sh v0.8.1
 ```
 
 同时配置了 [Dependabot](https://docs.github.com/en/code-security/dependabot)，当 zvec submodule 有新的提交时会自动创建 PR。

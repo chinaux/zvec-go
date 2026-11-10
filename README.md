@@ -64,11 +64,11 @@ cd zvec-go
 
 # 2. Download pre-built library for your platform
 #    (downloads from GitHub Releases, extracts to lib/)
-go run ./cmd/download-libs -version v0.8.0
+go run ./cmd/download-libs -version v0.8.1
 
 # Use in your project with replace directive
 # In your project's go.mod:
-#   require github.com/zvec-ai/zvec-go v0.8.0
+#   require github.com/zvec-ai/zvec-go v0.8.1
 #   replace github.com/zvec-ai/zvec-go => /path/to/zvec-go
 
 # 3a. Build with cgo (default when cgo is enabled)
@@ -85,7 +85,7 @@ CGO_ENABLED=0 go build .
 go get github.com/zvec-ai/zvec-go
 
 # 2. Download pre-built libraries manually from GitHub Releases:
-#    https://github.com/zvec-ai/zvec-go/releases/download/v0.8.0/zvec-libs-darwin-arm64.tar.gz
+#    https://github.com/zvec-ai/zvec-go/releases/download/v0.8.1/zvec-libs-darwin-arm64.tar.gz
 #    Extract to your project's lib/ directory
 
 # 3. Build with cgo
@@ -226,10 +226,14 @@ func main() {
 | `NewHNSWIndexParams(metricType, M, efConstruction)` | Create HNSW index parameters |
 | `NewIVFIndexParams(metricType, nlist, nIters, useSoar)` | Create IVF index parameters |
 | `NewIVFRaBitQIndexParams(metricType, nlist, totalBits, sampleCount)` | Create IVF RaBitQ index parameters (since v0.7.0) |
+| `NewIVFPQIndexParams(metricType, nlist, nIters, useSoar, pq)` | Create IVF product-quantization index parameters (since v0.8.1) |
 | `NewFlatIndexParams(metricType)` | Create Flat index parameters |
 | `NewInvertIndexParams(enable, wildcard)` | Create invert index parameters |
 | `NewFTSIndexParams(tokenizer, filters, extra)` | Create FTS index parameters |
 | `SetIndexParams(params)` | Set field index parameters |
+| `SetQuantizerPQ(pq)` | Set IVF PQ configuration and select `QuantizeTypePQ` (since v0.8.1) |
+| `GetQuantizerPQ()` | Read the IVF PQ configuration (since v0.8.1) |
+| `DefaultPqQuantizerParams()` / `NewPQ4QuantizerParams(n)` / `NewPQ8QuantizerParams(n)` | Build PQ configuration (since v0.8.1) |
 
 ### Collection Operations
 
@@ -304,10 +308,12 @@ func main() {
 | `SetIncludeVector(include)` | Whether to include vector data |
 | `SetIncludeDocID(include)` | Whether to include document ID |
 | `Query(query)` | Execute a query |
-| `GroupBySearchQuery(query)` | Group-by search query |
+| `NewGroupBySearchQuery()` | Create a grouped search query object |
+| `GroupByQuery(query)` | Execute a search grouped by a scalar field (since v0.8.1) |
 | `Fetch(pks, opts)` | Fetch documents by primary keys |
 | `MultiQuery(query)` | Execute a multi-query search |
 | `FreeDocs(docs)` | Free query result memory |
+| `FreeGroupResults(groups)` | Free the documents of grouped results (since v0.8.1) |
 
 ### FTS (Full-Text Search)
 
@@ -365,6 +371,7 @@ env var, which wins over the embedded defaults.
 | `QuantizeTypeFP16` | FP16 quantization |
 | `QuantizeTypeInt8` | Int8 quantization |
 | `QuantizeTypeInt4` | Int4 quantization |
+| `QuantizeTypePQ` | IVF product quantization (since v0.8.1) |
 
 ### Error Handling
 
@@ -409,7 +416,7 @@ This repository uses a **git submodule** to track the [zvec](https://github.com/
 ./scripts/sync-zvec.sh
 
 # Update to a specific tag
-./scripts/sync-zvec.sh v0.8.0
+./scripts/sync-zvec.sh v0.8.1
 ```
 
 [Dependabot](https://docs.github.com/en/code-security/dependabot) is also configured to automatically create PRs when the zvec submodule has new commits.

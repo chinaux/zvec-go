@@ -163,7 +163,7 @@ The zvec C-API header (`zvec/src/include/zvec/c_api.h`) is the contract between 
 ./scripts/sync-zvec.sh --build
 
 # Or update to a specific version
-./scripts/sync-zvec.sh v0.8.0 --build
+./scripts/sync-zvec.sh v0.8.1 --build
 ```
 
 #### Step 3: Update Go Bindings (if needed)
