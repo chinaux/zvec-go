@@ -32,7 +32,11 @@ jobs:
       matrix:
         include:
           - name: macos-arm64
-            runner: macos-14
+            # GitHub retired the macOS 14 Arm64 image (actions/runner-images#15100),
+            # so macos-14 is now rejected as an unsupported configuration before any
+            # step runs. macos-15 is the arm64 image, and is what zvec-rust and
+            # zvec-java already use for their arm64 legs.
+            runner: macos-15
           - name: macos-x64
             # Intel macOS runner, matching upstream _build_macos_x64_sdk.yml.
             runner: macos-15-intel
@@ -289,7 +293,8 @@ jobs:
       matrix:
         include:
           - name: macos-arm64
-            runner: macos-14
+            # macos-14's Arm64 image is retired; see the source-test matrix.
+            runner: macos-15
             lib_subdir: darwin_arm64
             lib_ext: dylib
           - name: macos-x64

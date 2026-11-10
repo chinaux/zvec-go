@@ -27,9 +27,13 @@ jobs:
       matrix:
         include:
           - name: darwin-arm64
-            # Use macos-14 to avoid queue issues with macos-13 (being deprecated)
-            # MACOSX_DEPLOYMENT_TARGET=13.0 ensures compatibility with macOS 13+
-            runner: macos-14
+            # macos-13 was deprecated, so this moved to macos-14; GitHub has since
+            # retired the macOS 14 Arm64 image too (actions/runner-images#15100),
+            # which left darwin-arm64 unbuildable. macos-15 is the current arm64
+            # image and matches zvec-rust's and zvec-java's release matrices.
+            # MACOSX_DEPLOYMENT_TARGET=13.0 still sets the floor, independent of
+            # the runner image, so compatibility with macOS 13+ is unchanged.
+            runner: macos-15
             platform: darwin_arm64
             lib_name: libzvec_c_api.dylib
             artifact_name: zvec-libs-darwin-arm64
