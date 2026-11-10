@@ -100,6 +100,7 @@ func TestQuantizeTypeConstants(t *testing.T) {
 		{"FP16", QuantizeTypeFP16, 1},
 		{"Int8", QuantizeTypeInt8, 2},
 		{"Int4", QuantizeTypeInt4, 3},
+		{"PQ", QuantizeTypePQ, 8},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

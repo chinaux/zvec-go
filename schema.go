@@ -17,6 +17,61 @@ type IndexParams struct {
 	handle *C.zvec_index_params_t
 }
 
+// PqQuantizerParams configures IVF product quantization.
+//
+// PQ supports FP32 IVF fields with the L2, IP or COSINE metrics. NumBits must
+// be 4 or 8; FastScan requires NumBits == 4 and a vector dimension divisible by
+// NumChunk. EnableRotate selects learned OPQ, in which case OpqIter and
+// OpqPQIter must be positive.
+//
+// Available since zvec v0.8.1 (c_api: zvec_pq_quantizer_params_t).
+type PqQuantizerParams struct {
+	NumChunk     int
+	NumBits      int
+	EnableRotate bool
+	FastScan     bool
+	OpqIter      uint32
+	OpqPQIter    uint32
+}
+
+// DefaultPqQuantizerParams returns the engine defaults for IVF product
+// quantization, mirroring ZVEC_PQ_QUANTIZER_PARAMS_DEFAULT.
+//
+// Available since zvec v0.8.1.
+func DefaultPqQuantizerParams() PqQuantizerParams {
+	return PqQuantizerParams{
+		NumChunk:     8,
+		NumBits:      8,
+		EnableRotate: false,
+		FastScan:     false,
+		OpqIter:      5,
+		OpqPQIter:    4,
+	}
+}
+
+// NewPQ4QuantizerParams returns PQ parameters with four bits per chunk code
+// word, the compact end of the accuracy/memory trade-off. FastScan requires
+// this width, and the vector dimension must be divisible by numChunk.
+//
+// Available since zvec v0.8.1.
+func NewPQ4QuantizerParams(numChunk int) PqQuantizerParams {
+	pq := DefaultPqQuantizerParams()
+	pq.NumChunk = numChunk
+	pq.NumBits = 4
+	return pq
+}
+
+// NewPQ8QuantizerParams returns PQ parameters with eight bits per chunk code
+// word, the accurate end of the accuracy/memory trade-off.
+//
+// Available since zvec v0.8.1.
+func NewPQ8QuantizerParams(numChunk int) PqQuantizerParams {
+	pq := DefaultPqQuantizerParams()
+	pq.NumChunk = numChunk
+	pq.NumBits = 8
+	return pq
+}
+
 // NewIndexParams creates index parameters with the specified index type.
 func NewIndexParams(indexType IndexType) *IndexParams {
 	handle := C.zvec_index_params_create(C.zvec_index_type_t(indexType))
@@ -106,6 +161,22 @@ func NewIVFRaBitQIndexParams(metric MetricType, nlist, totalBits, sampleCount in
 	return params, nil
 }
 
+// NewIVFPQIndexParams creates IVF index parameters quantized with product
+// quantization: the metric type, the IVF parameters and the PQ configuration.
+//
+// Available since zvec v0.8.1 (c_api: zvec_index_params_set_quantizer_pq).
+func NewIVFPQIndexParams(metric MetricType, nList, nIters int, useSoar bool, pq PqQuantizerParams) (*IndexParams, error) {
+	params, err := NewIVFIndexParams(metric, nList, nIters, useSoar)
+	if err != nil {
+		return nil, err
+	}
+	if err := params.SetQuantizerPQ(pq); err != nil {
+		params.Destroy()
+		return nil, err
+	}
+	return params, nil
+}
+
 // NewDiskANNIndexParams creates DiskANN index parameters with the specified metric type.
 func NewDiskANNIndexParams(metric MetricType, maxDegree, listSize, pqChunkNum int) (*IndexParams, error) {
 	params := NewIndexParams(IndexTypeDiskANN)
@@ -169,6 +240,55 @@ func (p *IndexParams) SetQuantizeType(quantize QuantizeType) error {
 // GetQuantizeType returns the quantize type.
 func (p *IndexParams) GetQuantizeType() QuantizeType {
 	return QuantizeType(C.zvec_index_params_get_quantize_type(p.handle))
+}
+
+// SetQuantizerPQ sets the IVF product-quantization configuration and switches
+// the quantize type to QuantizeTypePQ. The C setter copies the values but leaves
+// the quantize type alone, and PQ settings stored on an index that does not
+// quantize with PQ are ignored silently, so the type is set here.
+//
+// Only IVF index params accept this option — NewIVFPQIndexParams is the
+// shorthand — so every other index type returns InvalidArgument. HNSW can still
+// quantize with PQ, but only with the engine defaults: use NewHNSWIndexParams
+// followed by SetQuantizeType(QuantizeTypePQ).
+//
+// Available since zvec v0.8.1 (c_api: zvec_index_params_set_quantizer_pq).
+func (p *IndexParams) SetQuantizerPQ(pq PqQuantizerParams) error {
+	cPq := C.zvec_pq_quantizer_params_t{
+		num_chunk:     C.int(pq.NumChunk),
+		num_bits:      C.int(pq.NumBits),
+		enable_rotate: C.bool(pq.EnableRotate),
+		fast_scan:     C.bool(pq.FastScan),
+		opq_iter:      C.uint32_t(pq.OpqIter),
+		opq_pq_iter:   C.uint32_t(pq.OpqPQIter),
+	}
+	defer lockErrorThread()()
+	if err := toError(C.zvec_index_params_set_quantizer_pq(p.handle, &cPq)); err != nil {
+		return err
+	}
+	return p.SetQuantizeType(QuantizeTypePQ)
+}
+
+// GetQuantizerPQ returns the IVF product-quantization configuration.
+//
+// Non-IVF params return InvalidArgument; the value is meaningful once
+// SetQuantizerPQ has selected QuantizeTypePQ.
+//
+// Available since zvec v0.8.1 (c_api: zvec_index_params_get_quantizer_pq).
+func (p *IndexParams) GetQuantizerPQ() (PqQuantizerParams, error) {
+	var cPq C.zvec_pq_quantizer_params_t
+	defer lockErrorThread()()
+	if err := toError(C.zvec_index_params_get_quantizer_pq(p.handle, &cPq)); err != nil {
+		return PqQuantizerParams{}, err
+	}
+	return PqQuantizerParams{
+		NumChunk:     int(cPq.num_chunk),
+		NumBits:      int(cPq.num_bits),
+		EnableRotate: bool(cPq.enable_rotate),
+		FastScan:     bool(cPq.fast_scan),
+		OpqIter:      uint32(cPq.opq_iter),
+		OpqPQIter:    uint32(cPq.opq_pq_iter),
+	}, nil
 }
 
 // SetHNSWParams sets HNSW specific parameters.

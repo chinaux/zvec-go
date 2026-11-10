@@ -88,7 +88,10 @@ func TestValidatePuregoVersion(t *testing.T) {
 		major, minor, patch int32
 		wantErr             bool
 	}{
-		{name: "minimum", major: 0, minor: 8, patch: 0},
+		{name: "minimum", major: 0, minor: 8, patch: 1},
+		// 0.8.0 predates zvec_collection_group_by_query and the PQ quantizer
+		// symbols, so purego must refuse it rather than fail on a missing symbol.
+		{name: "older patch", major: 0, minor: 8, patch: 0, wantErr: true},
 		{name: "newer patch", major: 0, minor: 8, patch: 9},
 		{name: "older minor", major: 0, minor: 7, patch: 9, wantErr: true},
 		{name: "different pre-v1 minor", major: 0, minor: 9, patch: 0, wantErr: true},

@@ -8,7 +8,7 @@
 // - Include vectors and document IDs in results
 // - Use HNSW query parameters (ef, radius)
 // - Use IVF query parameters (nprobe)
-// - Use GroupBySearchQuery for grouping results
+// - Run a grouped search with GroupBySearchQuery and read the per-group results
 //
 // Before running this example, build the zvec C-API library:
 //
@@ -304,7 +304,24 @@ func main() {
 	fmt.Println("  - Group by field: category")
 	fmt.Println("  - Group count: 2")
 	fmt.Println("  - Group top-k: 2")
-	fmt.Println("  (Note: GroupBySearchQuery uses a separate query API — see collection_management example)")
+
+	// Execute the grouped search. Every group holds its nearest documents and
+	// the caller owns them, so release them with FreeGroupResults.
+	groups, err := collection.GroupByQuery(groupByQuery)
+	if err != nil {
+		log.Fatalf("Failed to run grouped query: %v", err)
+	}
+	defer zvec.FreeGroupResults(groups)
+
+	fmt.Printf("✓ Grouped query returned %d groups\n", len(groups))
+	for _, group := range groups {
+		fmt.Printf("  category=%q (%d docs)\n", group.GroupByValue, len(group.Docs))
+		for i, doc := range group.Docs {
+			category, _ := doc.GetStringField("category")
+			fmt.Printf("    %d. PK=%s, category=%s, Score=%.4f\n",
+				i+1, doc.GetPK(), category, doc.GetScore())
+		}
+	}
 
 	fmt.Println()
 	fmt.Println("✓ Vector Query example completed successfully!")

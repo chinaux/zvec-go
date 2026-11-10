@@ -19,7 +19,7 @@ const (
 	zvecLibraryPathEnv = "ZVEC_LIBRARY_PATH"
 	puregoABIMajor     = 0
 	puregoABIMinor     = 8
-	puregoMinABIPatch  = 0
+	puregoMinABIPatch  = 1
 )
 
 var (
@@ -67,6 +67,8 @@ type zvecPuregoAPI struct {
 	indexParamsGetMetricType         func(unsafe.Pointer) uint32
 	indexParamsSetQuantizeType       func(unsafe.Pointer, uint32) int32
 	indexParamsGetQuantizeType       func(unsafe.Pointer) uint32
+	indexParamsSetQuantizerPQ        func(unsafe.Pointer, unsafe.Pointer) int32
+	indexParamsGetQuantizerPQ        func(unsafe.Pointer, unsafe.Pointer) int32
 	indexParamsSetHNSWParams         func(unsafe.Pointer, int32, int32) int32
 	indexParamsGetHNSWM              func(unsafe.Pointer) int32
 	indexParamsGetHNSWEfConstruction func(unsafe.Pointer) int32
@@ -152,6 +154,7 @@ type zvecPuregoAPI struct {
 	collectionDeleteByFilter         func(unsafe.Pointer, string) int32
 	collectionQuery                  func(unsafe.Pointer, unsafe.Pointer, *unsafe.Pointer, *uintptr) int32
 	collectionMultiQuery             func(unsafe.Pointer, unsafe.Pointer, *unsafe.Pointer, *uintptr) int32
+	collectionGroupByQuery           func(unsafe.Pointer, unsafe.Pointer, *unsafe.Pointer, *uintptr) int32
 	collectionFetch                  func(unsafe.Pointer, unsafe.Pointer, uintptr, unsafe.Pointer, uintptr, bool, *unsafe.Pointer, *uintptr) int32
 	iteratorOptionsCreate            func() unsafe.Pointer
 	iteratorOptionsDestroy           func(unsafe.Pointer)
@@ -185,6 +188,7 @@ type zvecPuregoAPI struct {
 	docGetFieldNames        func(unsafe.Pointer, *unsafe.Pointer, *uintptr) int32
 	freeStrArray            func(unsafe.Pointer, uintptr)
 	docsFree                func(unsafe.Pointer, uintptr)
+	groupResultsFree        func(unsafe.Pointer, uintptr)
 
 	hnswQueryParamsCreate                 func(int32, float32, bool, bool) unsafe.Pointer
 	hnswQueryParamsDestroy                func(unsafe.Pointer)
@@ -408,6 +412,8 @@ func registerPuregoSymbols(handle uintptr) (err error) {
 	register(&puregoFns.indexParamsGetMetricType, "zvec_index_params_get_metric_type")
 	register(&puregoFns.indexParamsSetQuantizeType, "zvec_index_params_set_quantize_type")
 	register(&puregoFns.indexParamsGetQuantizeType, "zvec_index_params_get_quantize_type")
+	register(&puregoFns.indexParamsSetQuantizerPQ, "zvec_index_params_set_quantizer_pq")
+	register(&puregoFns.indexParamsGetQuantizerPQ, "zvec_index_params_get_quantizer_pq")
 	register(&puregoFns.indexParamsSetHNSWParams, "zvec_index_params_set_hnsw_params")
 	register(&puregoFns.indexParamsGetHNSWM, "zvec_index_params_get_hnsw_m")
 	register(&puregoFns.indexParamsGetHNSWEfConstruction, "zvec_index_params_get_hnsw_ef_construction")
@@ -526,6 +532,7 @@ func registerPuregoSymbols(handle uintptr) (err error) {
 	register(&puregoFns.docGetFieldNames, "zvec_doc_get_field_names")
 	register(&puregoFns.freeStrArray, "zvec_free_str_array")
 	register(&puregoFns.docsFree, "zvec_docs_free")
+	register(&puregoFns.groupResultsFree, "zvec_group_results_free")
 
 	register(&puregoFns.hnswQueryParamsCreate, "zvec_query_params_hnsw_create")
 	register(&puregoFns.hnswQueryParamsDestroy, "zvec_query_params_hnsw_destroy")

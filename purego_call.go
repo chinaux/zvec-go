@@ -63,6 +63,9 @@ func bindDirectPuregoSymbols(api *zvecPuregoAPI, handle uintptr) error {
 	if api.collectionMultiQuery, err = bindInt32PointerPointerOutPointerOutUintptr(lookup, "zvec_collection_multi_query"); err != nil {
 		return err
 	}
+	if api.collectionGroupByQuery, err = bindInt32PointerPointerOutPointerOutUintptr(lookup, "zvec_collection_group_by_query"); err != nil {
+		return err
+	}
 	if api.collectionFetch, err = bindInt32CollectionFetch(lookup, "zvec_collection_fetch"); err != nil {
 		return err
 	}

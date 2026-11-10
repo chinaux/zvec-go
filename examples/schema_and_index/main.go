@@ -169,6 +169,45 @@ func main() {
 	fmt.Printf("✓ HNSW with Int8 quantization — type=%d, metric=%d\n",
 		hnswInt8Params.GetType(), hnswInt8Params.GetMetricType())
 
+	// IVF with product quantization (zvec v0.8.1): 8 chunks of 8 bits each.
+	// SetQuantizerPQ selects QuantizeTypePQ for you — the C setter copies the
+	// values but leaves the quantize type alone, and PQ settings stored on an
+	// index that does not quantize with PQ are ignored silently.
+	ivfPQParams, err := zvec.NewIVFPQIndexParams(
+		zvec.MetricTypeCosine, 100, 20, false, zvec.NewPQ8QuantizerParams(8))
+	if err != nil {
+		log.Fatalf("Failed to create IVF PQ index params: %v", err)
+	}
+	defer ivfPQParams.Destroy()
+	pq, err := ivfPQParams.GetQuantizerPQ()
+	if err != nil {
+		log.Fatalf("Failed to read PQ quantizer params: %v", err)
+	}
+	fmt.Printf("✓ IVF with PQ quantization — quantize=%v, numChunk=%d, numBits=%d\n",
+		ivfPQParams.GetQuantizeType(), pq.NumChunk, pq.NumBits)
+
+	// OPQ learns a rotation before quantizing, which usually lowers the
+	// quantization error at the cost of a longer build. Its iteration counts
+	// must be positive once rotation is enabled.
+	opq := zvec.NewPQ4QuantizerParams(16)
+	opq.EnableRotate = true
+	opq.OpqIter = 10
+	opq.OpqPQIter = 5
+	opqParams, err := zvec.NewIVFIndexParams(zvec.MetricTypeL2, 64, 20, false)
+	if err != nil {
+		log.Fatalf("Failed to create IVF index params: %v", err)
+	}
+	defer opqParams.Destroy()
+	if err := opqParams.SetQuantizerPQ(opq); err != nil {
+		log.Fatalf("Failed to set OPQ quantizer params: %v", err)
+	}
+	gotOPQ, err := opqParams.GetQuantizerPQ()
+	if err != nil {
+		log.Fatalf("Failed to read OPQ quantizer params: %v", err)
+	}
+	fmt.Printf("✓ IVF with OPQ (learned rotation) — numBits=%d, enableRotate=%v, opqIter=%d\n",
+		gotOPQ.NumBits, gotOPQ.EnableRotate, gotOPQ.OpqIter)
+
 	fmt.Println()
 
 	// Example 4: Create a collection and verify schema

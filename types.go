@@ -103,6 +103,7 @@ const (
 	QuantizeTypeInt8      QuantizeType = 2
 	QuantizeTypeInt4      QuantizeType = 3
 	QuantizeTypeRABITQ    QuantizeType = 4
+	QuantizeTypePQ        QuantizeType = 8
 )
 
 func (q QuantizeType) String() string {
@@ -117,6 +118,8 @@ func (q QuantizeType) String() string {
 		return "Int4"
 	case QuantizeTypeRABITQ:
 		return "RABITQ"
+	case QuantizeTypePQ:
+		return "PQ"
 	default:
 		return "Unknown"
 	}

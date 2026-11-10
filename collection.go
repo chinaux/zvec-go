@@ -83,6 +83,19 @@ type WriteResult struct {
 	ErrorCount   uint64
 }
 
+// GroupResult holds one group of grouped vector search results.
+//
+// The caller owns every Doc in Docs and must call Destroy on each of them, or
+// pass the groups to FreeGroupResults.
+//
+// Available since zvec v0.8.1 (c_api: zvec_group_result_t).
+type GroupResult struct {
+	// GroupByValue is the string representation of the grouping value.
+	GroupByValue string
+	// Docs are the group's documents, ordered by vector similarity.
+	Docs []*Doc
+}
+
 // Collection represents a zvec collection.
 type Collection struct {
 	handle *C.zvec_collection_t
@@ -456,6 +469,63 @@ func (c *Collection) MultiQuery(query *MultiQuery) ([]*Doc, error) {
 	return docs, nil
 }
 
+// GroupByQuery performs a vector similarity search grouped by a scalar field.
+//
+// The returned result array owns everything in it — the grouping values, each
+// group's document array and the documents themselves — and
+// zvec_group_results_free is the only way to release it. Ownership of each
+// document is therefore moved into the returned GroupResult and the group's
+// document array is cleared before the array is handed back to the engine, so
+// nothing is freed twice.
+//
+// The caller is responsible for calling Destroy() on each returned Doc, or
+// using FreeGroupResults() to free every group at once.
+//
+// Available since zvec v0.8.1 (c_api: zvec_collection_group_by_query).
+func (c *Collection) GroupByQuery(query *GroupBySearchQuery) ([]*GroupResult, error) {
+	if query == nil || query.handle == nil {
+		return nil, invalidArgumentError("group by query is nil")
+	}
+	var cResults *C.zvec_group_result_t
+	var resultCount C.size_t
+	defer lockErrorThread()()
+	err := toError(C.zvec_collection_group_by_query(c.handle, query.handle, &cResults, &resultCount))
+	if err != nil {
+		return nil, err
+	}
+
+	count := int(resultCount)
+	if cResults == nil || count == 0 {
+		return nil, nil
+	}
+
+	resultSlice := unsafe.Slice(cResults, count)
+	groups := make([]*GroupResult, count)
+	for i := 0; i < count; i++ {
+		// Elements of resultSlice live in C memory, so writing through group
+		// edits the array the engine is about to free.
+		group := &resultSlice[i]
+		var docs []*Doc
+		if group.docs != nil && group.doc_count > 0 {
+			docSlice := unsafe.Slice(group.docs, int(group.doc_count))
+			docs = make([]*Doc, 0, len(docSlice))
+			for _, docHandle := range docSlice {
+				if docHandle != nil {
+					docs = append(docs, &Doc{handle: docHandle})
+				}
+			}
+		}
+		group.docs = nil
+		group.doc_count = 0
+		groups[i] = &GroupResult{
+			GroupByValue: C.GoString(group.group_by_value),
+			Docs:         docs,
+		}
+	}
+	C.zvec_group_results_free(cResults, resultCount)
+	return groups, nil
+}
+
 // FetchOptions controls optional parameters for Fetch.
 type FetchOptions struct {
 	OutputFields  []string
@@ -536,6 +606,18 @@ func FreeDocs(docs []*Doc) {
 	for _, doc := range docs {
 		if doc != nil {
 			doc.Destroy()
+		}
+	}
+}
+
+// FreeGroupResults is a convenience function to destroy the documents of
+// several grouped results at once.
+//
+// Available since zvec v0.8.1.
+func FreeGroupResults(groups []*GroupResult) {
+	for _, group := range groups {
+		if group != nil {
+			FreeDocs(group.Docs)
 		}
 	}
 }

@@ -264,6 +264,7 @@ const (
 	QuantizeTypeInt8      QuantizeType = 2
 	QuantizeTypeInt4      QuantizeType = 3
 	QuantizeTypeRABITQ    QuantizeType = 4
+	QuantizeTypePQ        QuantizeType = 8
 )
 
 func (q QuantizeType) String() string {
@@ -278,6 +279,8 @@ func (q QuantizeType) String() string {
 		return "Int4"
 	case QuantizeTypeRABITQ:
 		return "RABITQ"
+	case QuantizeTypePQ:
+		return "PQ"
 	default:
 		return "Unknown"
 	}
@@ -573,6 +576,96 @@ type IndexParams struct {
 	handle unsafe.Pointer
 }
 
+// PqQuantizerParams configures IVF product quantization.
+//
+// PQ supports FP32 IVF fields with the L2, IP or COSINE metrics. NumBits must
+// be 4 or 8; FastScan requires NumBits == 4 and a vector dimension divisible by
+// NumChunk. EnableRotate selects learned OPQ, in which case OpqIter and
+// OpqPQIter must be positive.
+//
+// Available since zvec v0.8.1 (c_api: zvec_pq_quantizer_params_t).
+type PqQuantizerParams struct {
+	NumChunk     int
+	NumBits      int
+	EnableRotate bool
+	FastScan     bool
+	OpqIter      uint32
+	OpqPQIter    uint32
+}
+
+// DefaultPqQuantizerParams returns the engine defaults for IVF product
+// quantization, mirroring ZVEC_PQ_QUANTIZER_PARAMS_DEFAULT.
+//
+// Available since zvec v0.8.1.
+func DefaultPqQuantizerParams() PqQuantizerParams {
+	return PqQuantizerParams{
+		NumChunk:     8,
+		NumBits:      8,
+		EnableRotate: false,
+		FastScan:     false,
+		OpqIter:      5,
+		OpqPQIter:    4,
+	}
+}
+
+// NewPQ4QuantizerParams returns PQ parameters with four bits per chunk code
+// word, the compact end of the accuracy/memory trade-off. FastScan requires
+// this width, and the vector dimension must be divisible by numChunk.
+//
+// Available since zvec v0.8.1.
+func NewPQ4QuantizerParams(numChunk int) PqQuantizerParams {
+	pq := DefaultPqQuantizerParams()
+	pq.NumChunk = numChunk
+	pq.NumBits = 4
+	return pq
+}
+
+// NewPQ8QuantizerParams returns PQ parameters with eight bits per chunk code
+// word, the accurate end of the accuracy/memory trade-off.
+//
+// Available since zvec v0.8.1.
+func NewPQ8QuantizerParams(numChunk int) PqQuantizerParams {
+	pq := DefaultPqQuantizerParams()
+	pq.NumChunk = numChunk
+	pq.NumBits = 8
+	return pq
+}
+
+// zvecPqQuantizerParams mirrors the C layout of zvec_pq_quantizer_params_t.
+// The two bools are followed by explicit padding so opqIter keeps the 4-byte
+// alignment the C struct gives it.
+type zvecPqQuantizerParams struct {
+	numChunk     int32
+	numBits      int32
+	enableRotate bool
+	fastScan     bool
+	_            [2]byte
+	opqIter      uint32
+	opqPQIter    uint32
+}
+
+func (pq PqQuantizerParams) toNative() zvecPqQuantizerParams {
+	return zvecPqQuantizerParams{
+		numChunk:     int32(pq.NumChunk),
+		numBits:      int32(pq.NumBits),
+		enableRotate: pq.EnableRotate,
+		fastScan:     pq.FastScan,
+		opqIter:      pq.OpqIter,
+		opqPQIter:    pq.OpqPQIter,
+	}
+}
+
+func (raw *zvecPqQuantizerParams) toGo() PqQuantizerParams {
+	return PqQuantizerParams{
+		NumChunk:     int(raw.numChunk),
+		NumBits:      int(raw.numBits),
+		EnableRotate: raw.enableRotate,
+		FastScan:     raw.fastScan,
+		OpqIter:      raw.opqIter,
+		OpqPQIter:    raw.opqPQIter,
+	}
+}
+
 func newIndexParams(indexType IndexType) (*IndexParams, error) {
 	api, err := puregoAPI()
 	if err != nil {
@@ -648,6 +741,22 @@ func NewIVFRaBitQIndexParams(metric MetricType, nlist, totalBits, sampleCount in
 		return nil, err
 	}
 	if err := params.SetIVFRaBitQParams(nlist, totalBits, sampleCount); err != nil {
+		params.Destroy()
+		return nil, err
+	}
+	return params, nil
+}
+
+// NewIVFPQIndexParams creates IVF index parameters quantized with product
+// quantization: the metric type, the IVF parameters and the PQ configuration.
+//
+// Available since zvec v0.8.1 (c_api: zvec_index_params_set_quantizer_pq).
+func NewIVFPQIndexParams(metric MetricType, nList, nIters int, useSoar bool, pq PqQuantizerParams) (*IndexParams, error) {
+	params, err := NewIVFIndexParams(metric, nList, nIters, useSoar)
+	if err != nil {
+		return nil, err
+	}
+	if err := params.SetQuantizerPQ(pq); err != nil {
 		params.Destroy()
 		return nil, err
 	}
@@ -747,6 +856,49 @@ func (p *IndexParams) GetQuantizeType() QuantizeType {
 		return QuantizeTypeUndefined
 	}
 	return QuantizeType(api.indexParamsGetQuantizeType(p.handle))
+}
+
+// SetQuantizerPQ sets the IVF product-quantization configuration and switches
+// the quantize type to QuantizeTypePQ. The C setter copies the values but leaves
+// the quantize type alone, and PQ settings stored on an index that does not
+// quantize with PQ are ignored silently, so the type is set here.
+//
+// Only IVF index params accept this option — NewIVFPQIndexParams is the
+// shorthand — so every other index type returns InvalidArgument. HNSW can still
+// quantize with PQ, but only with the engine defaults: use NewHNSWIndexParams
+// followed by SetQuantizeType(QuantizeTypePQ).
+//
+// Available since zvec v0.8.1 (c_api: zvec_index_params_set_quantizer_pq).
+func (p *IndexParams) SetQuantizerPQ(pq PqQuantizerParams) error {
+	api, err := puregoAPI()
+	if err != nil {
+		return err
+	}
+	raw := pq.toNative()
+	defer lockErrorThread()()
+	if err := toError(api.indexParamsSetQuantizerPQ(p.handle, unsafe.Pointer(&raw))); err != nil {
+		return err
+	}
+	return p.SetQuantizeType(QuantizeTypePQ)
+}
+
+// GetQuantizerPQ returns the IVF product-quantization configuration.
+//
+// Non-IVF params return InvalidArgument; the value is meaningful once
+// SetQuantizerPQ has selected QuantizeTypePQ.
+//
+// Available since zvec v0.8.1 (c_api: zvec_index_params_get_quantizer_pq).
+func (p *IndexParams) GetQuantizerPQ() (PqQuantizerParams, error) {
+	api, err := puregoAPI()
+	if err != nil {
+		return PqQuantizerParams{}, err
+	}
+	var raw zvecPqQuantizerParams
+	defer lockErrorThread()()
+	if err := toError(api.indexParamsGetQuantizerPQ(p.handle, unsafe.Pointer(&raw))); err != nil {
+		return PqQuantizerParams{}, err
+	}
+	return raw.toGo(), nil
 }
 
 func (p *IndexParams) SetHNSWParams(m, efConstruction int) error {
@@ -1350,6 +1502,26 @@ type WriteResult struct {
 	ErrorCount   uint64
 }
 
+// GroupResult holds one group of grouped vector search results.
+//
+// The caller owns every Doc in Docs and must call Destroy on each of them, or
+// pass the groups to FreeGroupResults.
+//
+// Available since zvec v0.8.1 (c_api: zvec_group_result_t).
+type GroupResult struct {
+	// GroupByValue is the string representation of the grouping value.
+	GroupByValue string
+	// Docs are the group's documents, ordered by vector similarity.
+	Docs []*Doc
+}
+
+// zvecGroupResult mirrors the C layout of zvec_group_result_t.
+type zvecGroupResult struct {
+	groupByValue unsafe.Pointer
+	docs         unsafe.Pointer
+	docCount     uintptr
+}
+
 // Collection represents a zvec collection.
 type Collection struct {
 	handle unsafe.Pointer
@@ -1655,6 +1827,29 @@ func (c *Collection) MultiQuery(query *MultiQuery) ([]*Doc, error) {
 	return wrapDocResults(cResults, resultCount), nil
 }
 
+// GroupByQuery performs a vector similarity search grouped by a scalar field.
+//
+// The caller is responsible for calling Destroy() on each returned Doc, or
+// using FreeGroupResults() to free every group at once.
+//
+// Available since zvec v0.8.1 (c_api: zvec_collection_group_by_query).
+func (c *Collection) GroupByQuery(query *GroupBySearchQuery) ([]*GroupResult, error) {
+	if query == nil || query.handle == nil {
+		return nil, invalidArgumentError("group by query is nil")
+	}
+	api, err := puregoAPI()
+	if err != nil {
+		return nil, err
+	}
+	var cResults unsafe.Pointer
+	var resultCount uintptr
+	defer lockErrorThread()()
+	if err := toError(api.collectionGroupByQuery(c.handle, query.handle, &cResults, &resultCount)); err != nil {
+		return nil, err
+	}
+	return wrapGroupResults(cResults, resultCount), nil
+}
+
 type FetchOptions struct {
 	OutputFields  []string
 	IncludeVector bool
@@ -1852,10 +2047,61 @@ func wrapDocResults(cResults unsafe.Pointer, count uintptr) []*Doc {
 	return docs
 }
 
+// wrapGroupResults converts a C group-result array into owned GroupResults.
+//
+// Unlike wrapDocResults this cannot free only the outer array: the C array owns
+// the grouping values, every per-group document array and the documents
+// themselves, and zvec_group_results_free is the only function that releases
+// it. Ownership of each document is therefore moved into a Go Doc and the
+// group's document array cleared first, so the engine's free cannot destroy
+// what the caller now owns.
+func wrapGroupResults(cResults unsafe.Pointer, count uintptr) []*GroupResult {
+	if cResults == nil || count == 0 {
+		return nil
+	}
+	elemSize := unsafe.Sizeof(zvecGroupResult{})
+	groups := make([]*GroupResult, int(count))
+	for i := uintptr(0); i < count; i++ {
+		raw := (*zvecGroupResult)(unsafe.Pointer(uintptr(cResults) + i*elemSize))
+		var docs []*Doc
+		if raw.docs != nil && raw.docCount > 0 {
+			handles := unsafe.Slice((*unsafe.Pointer)(raw.docs), int(raw.docCount))
+			docs = make([]*Doc, 0, len(handles))
+			for _, handle := range handles {
+				if handle != nil {
+					docs = append(docs, &Doc{handle: handle})
+				}
+			}
+		}
+		raw.docs = nil
+		raw.docCount = 0
+		groups[i] = &GroupResult{
+			GroupByValue: cStringFromPointer(raw.groupByValue),
+			Docs:         docs,
+		}
+	}
+	if puregoFns.groupResultsFree != nil {
+		puregoFns.groupResultsFree(cResults, count)
+	}
+	return groups
+}
+
 func FreeDocs(docs []*Doc) {
 	for _, doc := range docs {
 		if doc != nil {
 			doc.Destroy()
+		}
+	}
+}
+
+// FreeGroupResults is a convenience function to destroy the documents of
+// several grouped results at once.
+//
+// Available since zvec v0.8.1.
+func FreeGroupResults(groups []*GroupResult) {
+	for _, group := range groups {
+		if group != nil {
+			FreeDocs(group.Docs)
 		}
 	}
 }
